@@ -1,7 +1,42 @@
 name: Windows client verification
-on: workflow_dispatch
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
 jobs:
-  verify:
+  windows:
     runs-on: windows-latest
     steps:
-      - run: echo 'Source bootstrap; full verification follows.'
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri -> target
+            src-web -> target
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/test-web.mjs
+      - run: pnpm build
+      - run: cargo test --manifest-path src-web/Cargo.toml --locked -- --test-threads=1
+      - run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib -- --test-threads=1
+      - run: pnpm tauri build --no-bundle
+      - name: Package portable client
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts/HGhub-Windows | Out-Null
+          Copy-Item src-tauri/target/release/huangguo-client.exe artifacts/HGhub-Windows/HGhub.exe
+          Copy-Item LICENSE artifacts/HGhub-Windows/LICENSE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HGhub-Windows
+          path: artifacts/HGhub-Windows
+          retention-days: 14
