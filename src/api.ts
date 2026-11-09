@@ -1,4 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isNative } from "./runtime";
+import { requirePlaybackInfo } from "./playbackInfo";
 import type {
   CommentPage, Detail, Paged, PlayInfo, Post, RankItem, User, VideoCard,
 } from "./types";
@@ -22,7 +23,7 @@ export const isMobile = isAndroid || isIos;
  *  Windows / Android → `http://<scheme>.localhost`
  *  macOS / iOS / Linux → `<scheme>://localhost`
  *  Rust 侧 `src-tauri/src/lib.rs` 里改写 m3u8 用的 scheme 必须与此一致。 */
-export const LOCAL = isMacos || isIos ? "hg://localhost" : "http://hg.localhost";
+export const LOCAL = !isNative ? `${window.location.origin}/media` : isMacos || isIos ? "hg://localhost" : "http://hg.localhost";
 
 /** src 是否已是本地协议地址（避免在详情页把代理地址再包一层） */
 export const isLocalMedia = (src: string) => src.startsWith(`${LOCAL}/`);
@@ -32,7 +33,7 @@ export const cover = (url?: string, _w = 480) =>
   url ? `${LOCAL}/img?u=${encodeURIComponent(url)}` : "";
 
 /** 播放列表：经本地协议改写分片地址，规避 CORS 与防盗链。 */
-export const playlist = (url: string) => `${LOCAL}/hls?u=${encodeURIComponent(url)}`;
+export const playlist = (url: string) => isLocalMedia(url) ? url : `${LOCAL}/hls?u=${encodeURIComponent(url)}`;
 
 /* ── 调用封装 ───────────────────────────────────────────── */
 
@@ -43,7 +44,7 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
   try {
     return (await invoke(cmd, args)) as T;
   } catch (e) {
-    const msg = typeof e === "string" ? e : "请求失败，请检查网络";
+    const msg = typeof e === "string" ? e : e instanceof Error ? e.message : "请求失败，请检查网络";
     // 落盘完整错误链（dns error / connection refused / 证书错误…），toast 只显示截断版
     logLine(`[api] ${cmd} → ${msg}`);
     const status = /^HTTP (\d{3})\b/.exec(msg)?.[1];
@@ -86,7 +87,8 @@ export const api = {
   post: (id: number) => call<Post & { content?: string; video_url?: string }>("api_post", { id }),
 
   video: (id: number) => call<Detail>("api_video", { id }),
-  play: (id: number, ep: number) => call<PlayInfo>("api_play", { id, ep }),
+  /** @brief 获取可用播放信息。@param id 剧集编号。@param ep 集数。@return 播放信息或明确错误。 */
+  play: (id: number, ep: number) => call<PlayInfo>("api_play", { id, ep }).then(requirePlaybackInfo),
 
   comments: (id: number, ep: number, page = 1, size = 20) =>
     call<CommentPage>("api_comments", { id, ep, page, size }),
@@ -144,7 +146,7 @@ export async function selfTest(): Promise<string> {
   try {
     const info = await api.play(117, 3);
     steps.push(`play:${info?.video_url ? "ok" : "empty"}`);
-    const hlsUrl = `${LOCAL}/hls?u=${encodeURIComponent(info.video_url)}`;
+    const hlsUrl = playlist(info.video_url);
     const r1 = await fetch(hlsUrl);
     const txt = await r1.text();
     steps.push(`hls:${r1.status}/${txt.length}/${txt.startsWith("#EXTM3U") ? "m3u8" : "bad"}`);
@@ -209,10 +211,12 @@ export const dur = (s?: number | string) => {
 
 /** 非 m3u8 媒体（mp4 等）走 /seg 原样透传 */
 export function directMedia(url: string): string {
+  if (isLocalMedia(url)) return url;
   return `${LOCAL}/seg?u=${encodeURIComponent(url)}`;
 }
 
 /** 按扩展名选择代理方式：m3u8 → 播放列表改写；其它 → 原样透传 */
 export function mediaUrl(url: string): string {
+  if (isLocalMedia(url)) return url;
   return /\.m3u8(\?|$)/i.test(url) ? playlist(url) : directMedia(url);
 }

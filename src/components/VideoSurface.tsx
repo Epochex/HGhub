@@ -84,7 +84,7 @@ const VideoSurface = forwardRef<VideoHandle, Props>(function VideoSurface(
 
     const proxied = isLocalMedia(src);
     const url = proxied ? src : playlist(src);
-    const useHls = !url.includes("/seg?u=");
+    const useHls = !url.includes("/seg?");
     trace("source.load", { engine: useHls && Hls.isSupported() ? "hls.js" : "native", auto_play: autoPlay, resource: mediaResource(src) });
 
     /* 换源时先把音量/倍速套回去：hls 重新 attach 后浏览器会把它们重置成默认值 */

@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { api, APP_VERSION, hostOf, logLine, platform, type UpdateInfo } from "../api";
+import { isNative } from "../runtime";
 import { useStore } from "../store";
 import { Modal, Toggle } from "../components/ui";
 import LinePicker from "../components/LinePicker";
@@ -120,14 +121,14 @@ export default function Settings({ onBack, wide }: { onBack: () => void; wide: b
               <div className="flex-1 min-w-0">
                 <div className="text-[12.5px] text-on">严格安全模式</div>
                 <div className="text-[10.5px] text-mut">
-                  {cliRelaxed
+                  {!isNative ? "网页服务始终开启严格安全模式" : cliRelaxed
                     ? "已由启动参数 --no-strict 切换为兼容模式；可手动重新开启"
                     : "默认开启，防上游投毒与内网探测；若导致正文或特殊代理异常可关闭（或用 --no-strict 启动）"}
                 </div>
               </div>
               <Toggle
                 on={strictSecurity}
-                disabled={!strictSecurityReady || securityPending}
+                disabled={!isNative || !strictSecurityReady || securityPending}
                 onChange={(on) => {
                   void setStrictSecurity(on).then(() => {
                     toast(on ? "已开启严格安全模式" : "已切换为兼容模式（关闭激进清洗与守卫）", "info");
@@ -156,7 +157,7 @@ export default function Settings({ onBack, wide }: { onBack: () => void; wide: b
             </button>
           </Section>
 
-          <Section title="播放诊断">
+          {isNative && <Section title="播放诊断">
             <div className="flex items-center gap-3 px-3.5 py-3">
               <span className="w-8 h-8 rounded-full bg-s3 flex items-center justify-center text-primary"><IInfo size={16} /></span>
               <div className="flex-1 min-w-0">
@@ -180,7 +181,7 @@ export default function Settings({ onBack, wide }: { onBack: () => void; wide: b
               </div>
               <IChevR size={15} className="text-mut" />
             </button>
-          </Section>
+          </Section>}
 
           <Section title="其他">
             <button onClick={checkUpdate} disabled={checking} className="w-full flex items-center gap-3 px-3.5 py-3 text-left pressable disabled:opacity-60">
@@ -201,7 +202,7 @@ export default function Settings({ onBack, wide }: { onBack: () => void; wide: b
             </button>
           </Section>
 
-          <div className="text-center text-[10px] text-dim mt-5">HGhub {APP_VERSION} · {platform === "android" ? "Android" : platform === "ios" ? "iOS" : platform === "macos" ? "macOS" : "Windows"} 客户端</div>
+          <div className="text-center text-[10px] text-dim mt-5">HGhub {APP_VERSION} · {!isNative ? "网页版" : platform === "android" ? "Android" : platform === "ios" ? "iOS" : platform === "macos" ? "macOS" : "Windows"} 客户端</div>
         </div>
       </div>
 

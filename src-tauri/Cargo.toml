@@ -11,10 +11,18 @@ rust-version = "1.90"
 name = "huangguo_client_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+default = ["native"]
+native = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+http = "1"
+axum = "=0.8.6"
+futures-util = "0.3"
+uuid = { version = "1", features = ["v4"] }
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "=2.7.2"
 serde = { version = "1", features = ["derive"] }
@@ -30,6 +38,7 @@ reqwest = { version = "0.12", default-features = false, features = [
   "brotli",
   "json",
   "charset",
+  "stream",
 ] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "net"] }
 aes = "0.8"

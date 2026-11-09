@@ -2,7 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { AppProvider } from "./store";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./runtime";
 import "./index.css";
 import { initPlaybackLog, installPlaybackPageEvents } from "./playbackDiagnostics";
 

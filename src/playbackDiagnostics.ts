@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "./runtime";
 import { useEffect, useRef, useSyncExternalStore, type RefObject } from "react";
 import Hls from "hls.js";
 import type { FragBufferedData, FragLoadedData, FragLoadingData } from "hls.js";

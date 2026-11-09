@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, cover, fmt, fmtTime, isMobile, mediaUrl } from "../api";
+import { isNative } from "../runtime";
 import type { Detail, Episode, Post, VideoCard } from "../types";
 import { useStore } from "../store";
 import { Avatar, Img, Sheet } from "./ui";
@@ -43,6 +44,10 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const [epMap, setEpMap] = useState<Record<number, number>>(() => (startEp ? { [videoIds[startIndex]]: startEp } : {}));
   const [details, setDetails] = useState<Record<number, Detail>>({});
   const [playUrls, setPlayUrls] = useState<Record<string, string>>({});
+  const [playRevision, setPlayRevision] = useState(0);
+  const [sourceAutoplay, setSourceAutoplay] = useState(true);
+  const retryState = useRef({ key: "", attempts: 0 });
+  const playIntent = useRef(true);
   const [cards, setCards] = useState<Record<number, VideoCard>>({});
   const [posts, setPosts] = useState<Record<number, Post>>({});
 
@@ -109,6 +114,30 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
   const curEp = epMap[curId] || 1;
   const playKey = `${curId}:${curEp}`;
   const playUrl = playUrls[playKey] || "";
+  /** @brief 为当前集重新取址并保存续播位置。@param reason 重试或恢复来源。@return 无。 */
+  const renewPlayback = useCallback((reason: "error" | "manual" | "resume") => {
+    const position = videoRef.current?.el()?.currentTime || liveRef.current.t;
+    if (position > 1) resumeRef.current = { key: playKey, t: position };
+    setSourceAutoplay(reason === "resume" ? playIntent.current : true);
+    setErr(""); setWaiting(true);
+    setPlayRevision((value) => value + 1);
+  }, [playKey]);
+
+  useEffect(() => {
+    let wasHidden = document.hidden;
+    const visible = () => {
+      if (document.hidden) { wasHidden = true; return; }
+      if (wasHidden && active) renewPlayback("resume");
+      wasHidden = false;
+    };
+    document.addEventListener("visibilitychange", visible);
+    return () => document.removeEventListener("visibilitychange", visible);
+  }, [active, renewPlayback]);
+  const previouslyActive = useRef(active);
+  useEffect(() => {
+    if (active && !previouslyActive.current && playUrl) renewPlayback("resume");
+    previouslyActive.current = active;
+  }, [active, playUrl, renewPlayback]);
   useEffect(() => { videoRef.current?.trace("page.active", { active, view: mode, video_id: curId, episode: curEp }); }, [active, mode, curId, curEp]);
   const episodes = detail?.episodes || [];
   const post = posts[curId];
@@ -236,8 +265,8 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
 
   /* 拉播放地址 */
   useEffect(() => {
-    if (!curId) return;
-    if (playUrls[playKey]) return;
+    if (!curId || (!isNative && !active)) return;
+    if (!playRevision && playUrls[playKey]) return;
     let alive = true;
     api.play(curId, curEp)
       .then((info) => {
@@ -249,12 +278,15 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
       .catch((e) => { if (alive) setErr((e as Error).message || "取播放地址失败"); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [curId, curEp]);
+  }, [curId, curEp, playRevision, active]);
 
   /* 切换条目/集数时重置播放状态 */
   useEffect(() => {
     setTime(0); setDuration(0); setBuffered(0); setErr(""); setWaiting(true); setPaused(false); setDescOpen(false);
     setVsize({ w: 0, h: 0 });
+    retryState.current = { key: playKey, attempts: 0 };
+    playIntent.current = true;
+    setSourceAutoplay(true);
   }, [playKey]);
 
   /* 音量/静音同步 */
@@ -541,7 +573,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
               {isActive && playUrl ? (
                 <div className="absolute inset-0" style={{ touchAction: "pan-y" }}
                   onPointerDown={onDown} onPointerMove={onMove} onPointerUp={() => onUp()} onPointerCancel={() => onUp(true)} onLostPointerCapture={() => onUp(true)}>
-                <VideoSurface ref={videoRef} src={playUrl} poster={posterUrl} autoPlay active={active} muted={muted}
+                <VideoSurface ref={videoRef} src={playUrl} poster={posterUrl} autoPlay={sourceAutoplay} active={active} muted={muted}
                   diagnosticContext={{ active, view: mode, kind, video_id: curId, episode: curEp }}
                   volume={volume} rate={effRate}
                   fit={isDesktop || (vsize.w > 0 && vsize.w > vsize.h) ? "contain" : "cover"}
@@ -549,11 +581,16 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   onTime={onTimeTick}
                   onDuration={onDurationTick}
                   onSize={(w, h) => setVsize({ w, h })}
-                  onPlaying={() => { setPaused(false); setWaiting(false); }}
-                  onPause={() => setPaused(true)}
+                  onPlaying={() => { setPaused(false); setWaiting(false); playIntent.current = true; }}
+                  onPause={() => { setPaused(true); if (active && !document.hidden) playIntent.current = false; }}
                   onWaiting={() => setWaiting(true)}
                   onEnded={() => { const next = episodes.find((e) => e.ep_num === curEp + 1); if (next) pickEp(next.ep_num); }}
-                  onError={(m) => setErr(m)} />
+                  onError={(m) => {
+                    if (active && /\/hls\?p=/.test(playUrl) && retryState.current.attempts < 1) {
+                      retryState.current.attempts += 1;
+                      renewPlayback("error");
+                    } else setErr(m);
+                  }} />
                 </div>
               ) : (
                 <div className="absolute inset-0">
@@ -748,7 +785,7 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
                   <div className="rounded-xl p-5 flex flex-col items-center gap-3 text-[13px] hg-ink-2" style={{ background: "rgba(0,0,0,.7)" }}>
                     <span>视频暂时无法加载</span>
                     <span className="text-[10.5px] hg-ink-4 max-w-[240px] text-center break-all">{err}</span>
-                    <button className="hg-link text-[12.5px]" onClick={() => { setErr(""); setWaiting(true); videoRef.current?.play(); }}>重试</button>
+                    <button className="hg-link text-[12.5px]" onClick={() => { retryState.current.attempts = 0; renewPlayback("manual"); }}>重试</button>
                   </div>
                 </div>
               )}

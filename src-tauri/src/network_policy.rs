@@ -191,11 +191,52 @@ fn sort_ipv6_first(addrs: &mut [SocketAddr]) {
     addrs.sort_unstable_by_key(|addr| (addr.is_ipv4(), *addr));
 }
 
+fn doh_addresses(value: &Value, port: u16) -> Result<Vec<SocketAddr>, String> {
+    if value["Status"].as_u64() != Some(0) { return Err("加密 DNS 查询失败".into()); }
+    let mut addresses = Vec::new();
+    if let Some(answers) = value["Answer"].as_array() {
+        for answer in answers {
+            if matches!(answer["type"].as_u64(), Some(1 | 28)) {
+                let ip: IpAddr = answer["data"].as_str().ok_or("DNS 地址缺失")?
+                    .parse().map_err(|_| "DNS 地址无效")?;
+                addresses.push(SocketAddr::new(ip, port));
+            }
+        }
+    }
+    Ok(addresses)
+}
+
+/// Optional per-process encrypted DNS; the resulting addresses still pass the same policy.
+async fn encrypted_dns(host: &str, port: u16) -> Result<Vec<SocketAddr>, String> {
+    let mut builder = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::none());
+    if let Ok(proxy) = std::env::var("HGHUB_PROXY") {
+        builder = builder.proxy(reqwest::Proxy::all(&proxy).map_err(|_| "DNS 代理配置无效")?);
+    }
+    let client = builder.build().map_err(|_| "DNS 客户端初始化失败")?;
+    let query = |kind: &'static str| {
+        let client = &client;
+        async move {
+            let response = client.get("https://dns.google/resolve")
+                .query(&[("name", host), ("type", kind)])
+                .header("Accept", "application/dns-json")
+                .send().await.map_err(|_| "加密 DNS 连接失败")?
+                .error_for_status().map_err(|_| "加密 DNS 服务异常")?;
+            let value: Value = response.json().await.map_err(|_| "DNS 响应无效")?;
+            doh_addresses(&value, port)
+        }
+    };
+    let (v4, v6) = tokio::try_join!(query("A"), query("AAAA"))?;
+    Ok(v4.into_iter().chain(v6).collect())
+}
+
 pub async fn resolve_target(url: &Url, strict: bool) -> Result<Vec<SocketAddr>, String> {
     let port = url.port_or_known_default().ok_or("目标端口无效")?;
     let mut addrs = match url.host().ok_or("目标缺少主机名")? {
         Host::Ipv4(ip) => vec![SocketAddr::new(ip.into(), port)],
         Host::Ipv6(ip) => vec![SocketAddr::new(ip.into(), port)],
+        Host::Domain(host) if std::env::var("HGHUB_DOH").as_deref() != Ok("0") => encrypted_dns(host, port).await?,
         Host::Domain(host) => tokio::time::timeout(
             Duration::from_secs(10),
             tokio::net::lookup_host((host, port)),
@@ -231,6 +272,21 @@ pub fn redirect_target_with_mode(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn encrypted_dns_answers_keep_address_validation() {
+        let answer = json!({"Status":0,"Answer":[
+            {"type":5,"data":"cdn.example.test"},
+            {"type":1,"data":"1.1.1.1"},
+            {"type":28,"data":"2606:4700:4700::1111"}]});
+        let addresses = doh_addresses(&answer,443).unwrap();
+        assert_eq!(addresses.len(),2);
+        assert!(check_addresses_with_mode(&addresses,true).is_ok());
+        let mixed = json!({"Status":0,"Answer":[{"type":1,"data":"1.1.1.1"},{"type":1,"data":"127.0.0.1"}]});
+        assert!(check_addresses_with_mode(&doh_addresses(&mixed,443).unwrap(),true).is_err());
+        assert!(doh_addresses(&json!({"Status":2}),443).is_err());
+        assert!(doh_addresses(&json!({"Status":0,"Answer":[{"type":1,"data":"invalid"}]}),443).is_err());
+    }
 
     #[test]
     fn failed_security_save_keeps_the_effective_mode() {

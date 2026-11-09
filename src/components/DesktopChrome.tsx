@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useStore, type Tab } from "../store";
 import { APP_VERSION } from "../api";
+import { isNative } from "../runtime";
 import { Avatar } from "./ui";
 import {
   IClose, IGrid, IGridF, IHome, IHomeF, IMinus, IMoon, IRestore, ISearch, ISettings, ISidebar,
@@ -17,6 +18,7 @@ export function DesktopTitleBar({ collapsed, onToggle }: { collapsed: boolean; o
   const [nativeFs, setNativeFs] = useState(false);
 
   useEffect(() => {
+    if (!isNative) return;
     let un: (() => void) | undefined;
     const sync = () => {
       appWindow().isMaximized().then(setMaxed).catch(() => {});
@@ -30,7 +32,7 @@ export function DesktopTitleBar({ collapsed, onToggle }: { collapsed: boolean; o
 
   return (
     <header className={`win-titlebar ${nativeFs ? "is-native-fs" : ""}`} data-tauri-drag-region
-      onDoubleClick={(e) => { if (!(e.target as HTMLElement).closest("button")) appWindow().toggleMaximize().catch(() => {}); }}>
+      onDoubleClick={(e) => { if (isNative && !(e.target as HTMLElement).closest("button")) appWindow().toggleMaximize().catch(() => {}); }}>
       <div className="win-wordmark" data-tauri-drag-region>
         <Logo size={24} />
         <span>HG<span className="win-wordmark-light">hub</span></span>
@@ -46,7 +48,7 @@ export function DesktopTitleBar({ collapsed, onToggle }: { collapsed: boolean; o
         <ISearch size={17} strokeWidth={1.7} />
       </button>
       {/* macOS 用系统自带的红绿灯（titleBarStyle: Overlay），不画自绘按钮 */}
-      {platform !== "macos" && (
+      {isNative && platform !== "macos" && (
         <div className="win-caption-buttons">
           <button aria-label="最小化" onClick={() => appWindow().minimize().catch(() => {})}><IMinus size={15} strokeWidth={1.5} /></button>
           <button aria-label={maxed ? "还原" : "最大化"} onClick={() => appWindow().toggleMaximize().catch(() => {})}>
@@ -110,7 +112,7 @@ export function DesktopRail({ collapsed }: { collapsed: boolean }) {
               <small>{user ? "你的精彩，都在这里" : "留住每一次心动"}</small>
             </span>
           </button>
-          <span className="win-sidebar-version">HGhub for {platform === "macos" ? "macOS" : "Windows"} {APP_VERSION}</span>
+          <span className="win-sidebar-version">HGhub for {!isNative ? "Web" : platform === "macos" ? "macOS" : "Windows"} {APP_VERSION}</span>
         </div>
       </div>
     </nav>

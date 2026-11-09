@@ -7,6 +7,8 @@ mod media;
 mod net;
 mod network_policy;
 mod playback_log;
+#[path = "../../src-web/src/playback.rs"]
+mod playback;
 mod session;
 
 use api::Api;
@@ -109,11 +111,32 @@ pub fn run() {
             let uri = request.uri().clone();
             let path = uri.path().to_string();
             let query = uri.query().unwrap_or("").to_string();
+            let app_handle = _app.app_handle().clone();
+            let range = request.headers().get("Range").and_then(|v| v.to_str().ok())
+                .filter(|v| v.len() <= 100 && v.bytes().all(|b| b.is_ascii_digit() || b"bytes=,- ".contains(&b)))
+                .map(str::to_owned);
             // 自定义协议基址随平台不同，统一定义在 media::LOCAL_ORIGIN
             // （Windows/Android 是 http://<scheme>.localhost，macOS/iOS/Linux 是 <scheme>://localhost）。
             // 它同时是 m3u8 分片/key 改写用的前缀，必须与前端 src/api.ts 的 LOCAL 一致。
             tauri::async_runtime::spawn(async move {
-                let mut resp = media::handle(&path, &query, media::LOCAL_ORIGIN).await;
+                let params: std::collections::HashMap<_, _> = url::form_urlencoded::parse(query.as_bytes()).into_owned().collect();
+                let mut resp = if matches!(path.as_str(), "/hls" | "/seg") && params.contains_key("p") {
+                    let state = app_handle.state::<Api>();
+                    match state.playback.serve(&state, params.get("p").map(String::as_str).unwrap_or(""),
+                        params.get("r").map(String::as_str).unwrap_or(""), range.as_deref()).await {
+                        Ok(response) => {
+                            let (mut parts, body) = response.into_parts();
+                            parts.headers.insert("Cache-Control", tauri::http::HeaderValue::from_static("private, no-store"));
+                            match axum::body::to_bytes(body, 64 * 1024 * 1024).await {
+                                Ok(bytes) => tauri::http::Response::from_parts(parts, bytes.to_vec()),
+                                Err(_) => tauri::http::Response::builder().status(502).body(b"media response too large or interrupted".to_vec()).unwrap(),
+                            }
+                        }
+                        Err(error) => tauri::http::Response::builder().status(502).header("Cache-Control", "no-store").body(error.into_bytes()).unwrap(),
+                    }
+                } else {
+                    media::handle(&path, &query, media::LOCAL_ORIGIN).await
+                };
                 if let Some(origin) =
                     request_origin.and_then(|s| tauri::http::HeaderValue::from_str(&s).ok())
                 {

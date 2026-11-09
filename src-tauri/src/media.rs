@@ -11,7 +11,7 @@ use once_cell::sync::Lazy;
 use percent_encoding::{percent_decode_str, utf8_percent_encode, NON_ALPHANUMERIC};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tauri::http::{Response, StatusCode};
+use http::{Response, StatusCode};
 
 /// 本平台自定义协议的完整基址。
 ///
@@ -199,7 +199,17 @@ pub async fn load_playlist(url: &str, prefix: &str) -> Result<Arc<String>, Strin
     Ok(arc)
 }
 
+/// @brief 按原生协议前缀改写播放列表。
+/// @param url 播放列表原始地址。@param text 清单正文。@param prefix 本地媒体前缀。
+/// @return 所有媒体 URI 均经本地代理的清单。
 fn rewrite_playlist(url: &str, text: &str, prefix: &str) -> String {
+    rewrite_playlist_with(url, text, |target| format!("{prefix}/seg?u={}", enc(target)))
+}
+
+/// @brief 使用调用方的票据生成器改写所有 HLS 媒体 URI。
+/// @param url 原始清单地址。@param text 清单正文。@param proxy 安全本地地址生成器。
+/// @return 改写后的清单，保留原有内容引导与 DATERANGE 过滤规则。
+pub(crate) fn rewrite_playlist_with(url: &str, text: &str, mut proxy: impl FnMut(&str) -> String) -> String {
     let mut out = String::with_capacity(text.len() + 512);
     for raw in text.trim_start_matches('\u{feff}').lines() {
         let line = raw.trim_end();
@@ -233,13 +243,13 @@ fn rewrite_playlist(url: &str, text: &str, prefix: &str) -> String {
             if line.contains("URI=\"") {
                 // KEY/MAP/MEDIA/SESSION-KEY/PART/PRELOAD-HINT 等 URI 都必须经过目标检查。
                 let absolute = absolutize_uri_in_attr(url, line);
-                out.push_str(&rewrite_uri_attr(&absolute, prefix));
+                out.push_str(&map_uri_attributes(&absolute, |target| proxy(target)));
             } else {
                 out.push_str(line);
             }
         } else {
             let absolute = absolutize(url, line);
-            out.push_str(&format!("{prefix}/seg?u={}", enc(&absolute)));
+            out.push_str(&proxy(&absolute));
         }
         out.push('\n');
     }
