@@ -28,6 +28,15 @@ jobs:
       - run: pnpm build
       - run: cargo test --manifest-path src-web/Cargo.toml --locked -- --test-threads=1
       - run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib -- --test-threads=1
+      - name: Verify synthetic encrypted HLS download
+        shell: pwsh
+        run: |
+          $tools = Join-Path $env:RUNNER_TEMP 'hghub-download-tools'
+          ./scripts/install-download-component.ps1 -Destination $tools
+          $env:HGHUB_FFMPEG = Join-Path $tools 'ffmpeg/ffmpeg.exe'
+          $env:HGHUB_TEST_WORK = Join-Path $env:RUNNER_TEMP 'hghub-synthetic-downloads'
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --lib download::tests -- --include-ignored --test-threads=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - run: pnpm tauri build --no-bundle
       - name: Package portable client
         shell: pwsh
@@ -35,6 +44,8 @@ jobs:
           New-Item -ItemType Directory -Force artifacts/HGhub-Windows | Out-Null
           Copy-Item src-tauri/target/release/huangguo-client.exe artifacts/HGhub-Windows/HGhub.exe
           Copy-Item LICENSE artifacts/HGhub-Windows/LICENSE
+          Copy-Item scripts/install-download-component.ps1 artifacts/HGhub-Windows/安装下载组件.ps1
+          Copy-Item docs/downloads.md artifacts/HGhub-Windows/下载说明.md
       - uses: actions/upload-artifact@v4
         with:
           name: HGhub-Windows
