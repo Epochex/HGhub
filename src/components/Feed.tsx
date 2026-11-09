@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, cover, fmt, fmtTime, isMobile, mediaUrl } from "../api";
-import { isNative } from "../runtime";
+import { api, cover, fmt, fmtTime, isMobile, mediaUrl, platform } from "../api";
+import { invoke, isNative } from "../runtime";
 import type { Detail, Episode, Post, VideoCard } from "../types";
 import { useStore } from "../store";
 import { Avatar, Img, Sheet } from "./ui";
@@ -814,6 +814,14 @@ export default function Feed({ videoIds, startIndex = 0, title = "", mode, kind 
           onLock={lockControls}
           onTheater={() => setTheater((v) => !v)}
           onFullscreen={toggleFull}
+          downloadDisabled={!curId || !detail || !playUrl}
+          onDownload={isNative && platform === "windows" && kind === "video" ? async () => {
+            try {
+              await invoke("download_start", {id:curId, ep:curEp, title:detail?.title || "视频", duration});
+              window.dispatchEvent(new Event("hghub-download-change"));
+              toast("已开始下载本集，保存为 MP4", "ok");
+            } catch (error) { toast(typeof error === "string" ? error : "无法开始下载", "info"); }
+          } : undefined}
           onNext={() => {
             const nx = episodes.find((e) => e.ep_num === curEp + 1);
             if (nx) pickEp(nx.ep_num);

@@ -9,6 +9,7 @@ test-results/
 src-tauri/target/
 src-web/target/
 .web-data/
+ffmpeg/
 src-tauri/gen/
 *.local
 

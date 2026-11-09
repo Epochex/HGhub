@@ -138,7 +138,7 @@ fn absolutize(base: &str, target: &str) -> String {
 }
 
 /// 属性列表中的引号内可含逗号，不能直接 split(',')。
-fn hls_attributes(line: &str) -> Option<(&str, Vec<&str>)> {
+pub(crate) fn hls_attributes(line: &str) -> Option<(&str, Vec<&str>)> {
     let (tag, rest) = line.split_once(':')?;
     let mut attributes = Vec::new();
     let mut quoted = false;

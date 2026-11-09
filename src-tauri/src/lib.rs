@@ -1,4 +1,5 @@
 mod api;
+mod download;
 mod lines;
 mod logging;
 #[cfg(target_os = "macos")]
@@ -54,6 +55,7 @@ pub fn run() {
                 .build(),
         )
         .manage(Api::new())
+        .manage(download::Downloads::default())
         .setup(|app| {
             if let Ok(dir) = app.path().app_data_dir() {
                 let _ = std::fs::create_dir_all(&dir);
@@ -149,6 +151,10 @@ pub fn run() {
             });
         })
         .invoke_handler(tauri::generate_handler![
+            download::download_start,
+            download::download_status,
+            download::download_cancel,
+            download::download_open_folder,
             api::app_boot,
             playback_log::playback_log_status,
             playback_log::playback_log_set,

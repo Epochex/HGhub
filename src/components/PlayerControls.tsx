@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { fmtTime } from "../api";
 import { useSeekInput } from "../useSeekInput";
-import { ICheck, ICompress, IExpand, ILockF, INext, IPauseF, IPip, IPlayF, ITheater, IVol, IVolMute } from "../icons";
+import { ICheck, ICompress, IDownload, IExpand, ILockF, INext, IPauseF, IPip, IPlayF, ITheater, IVol, IVolMute } from "../icons";
 
 type Props = {
   paused: boolean;
@@ -29,13 +29,15 @@ type Props = {
   onTheater?: () => void;
   onFullscreen: () => void;
   onNext?: () => void;
+  onDownload?: () => void;
+  downloadDisabled?: boolean;
 };
 
 const clock = (s: number) => fmtTime(Math.max(0, s || 0)).padStart(5, "0");
 
 export default function PlayerControls({
   paused, time, duration, buffered = 0, rate, muted, volume, theater = false, fullscreen = false,
-  visible = true, seekEnabled = true, seekKey, nextDisabled = false, nextTitle = "下一个", onToggle, onSeek, onSeekInteraction, onRate, onMute, onVolume, onPip, onLock, onTheater, onFullscreen, onNext,
+  visible = true, seekEnabled = true, seekKey, nextDisabled = false, nextTitle = "下一个", onToggle, onSeek, onSeekInteraction, onRate, onMute, onVolume, onPip, onLock, onTheater, onFullscreen, onNext, onDownload, downloadDisabled,
 }: Props) {
   const [speedOpen, setSpeedOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -72,6 +74,7 @@ export default function PlayerControls({
         )}
         <span className="player-timecode"><span>{clock(seek.time)}</span><span className="player-time-separator">/</span>{clock(duration)}</span>
         <div className="player-control-spacer" />
+        {onDownload && <button className="player-control" aria-label="下载本集" data-tooltip="下载本集为 MP4" disabled={downloadDisabled} onClick={onDownload}><IDownload size={18} /></button>}
         <div className="player-speed-slot">
           <button className={`player-control player-speed ${rate !== 1 ? "is-on" : ""}`} aria-label="倍速" aria-expanded={speedOpen}
             data-tooltip="播放速度" onClick={() => setSpeedOpen((v) => !v)}>
