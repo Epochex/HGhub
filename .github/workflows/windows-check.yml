@@ -1,0 +1,7 @@
+name: Windows client verification
+on: workflow_dispatch
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - run: echo 'Source bootstrap; full verification follows.'
